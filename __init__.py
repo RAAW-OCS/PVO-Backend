@@ -41,11 +41,12 @@ cors = CORS(
        'http://localhost:4000',
        'http://127.0.0.1:4000',
        'https://pvo.opencodingsociety.com',
+       'https://aadis12.github.io',
        'https://open-coding-society.github.io',
        'https://pages.opencodingsociety.com',
        'https://pirates.opencodingsociety.com',
    ],
-   methods=["GET", "POST", "PUT", "OPTIONS"]
+   methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
 
 

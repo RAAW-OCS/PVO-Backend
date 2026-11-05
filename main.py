@@ -32,6 +32,7 @@ from api.classroom_api import classroom_api
 from api.data_export_import_api import data_export_import_api
 from hacks.joke import joke_api  # Import the joke API blueprint
 from api.post import post_api  # Import the social media post API
+from api.community_api import community_api
 #from api.announcement import announcement_api ##temporary revert
 
 # database Initialization functions
@@ -85,6 +86,7 @@ app.register_blueprint(feedback_api)
 app.register_blueprint(data_export_import_api)  # Register the data export/import API
 app.register_blueprint(joke_api)  # Register the joke API blueprint
 app.register_blueprint(post_api)  # Register the social media post API
+app.register_blueprint(community_api)
 
 app.register_blueprint(veteran_api)
 app.register_blueprint(volunteer_api)
@@ -370,6 +372,8 @@ def generate_titanic_data():
 
 # Keep the prescreener database ready for fresh local installs and deployments.
 create_tables()
+with app.app_context():
+    db.create_all()
 
 # this runs the flask application on the development server
 if __name__ == "__main__":
