@@ -103,6 +103,10 @@ else:
    dbString = 'sqlite:///volumes/'
    dbURI = dbString + dbName + '.db'
    backupURI = dbString + dbName + '_bak.db'
+# Automated tests point at a throwaway database so they never touch real data
+if os.environ.get('PVO_TEST_DATABASE_URI'):
+   dbURI = os.environ['PVO_TEST_DATABASE_URI']
+   backupURI = None
 # Set database configuration in Flask app
 app.config['DB_ENDPOINT'] = DB_ENDPOINT
 app.config['DB_USERNAME'] = DB_USERNAME

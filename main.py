@@ -32,7 +32,7 @@ from api.classroom_api import classroom_api
 from api.data_export_import_api import data_export_import_api
 from hacks.joke import joke_api  # Import the joke API blueprint
 from api.post import post_api  # Import the social media post API
-from api.community_api import community_api
+from api.community_api import community_api, ensure_profile_survey_columns
 #from api.announcement import announcement_api ##temporary revert
 
 # database Initialization functions
@@ -374,6 +374,7 @@ def generate_titanic_data():
 create_tables()
 with app.app_context():
     db.create_all()
+    ensure_profile_survey_columns()
 
 # this runs the flask application on the development server
 if __name__ == "__main__":

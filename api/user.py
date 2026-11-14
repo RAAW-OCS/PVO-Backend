@@ -6,6 +6,7 @@ from __init__ import app, db
 from api.authorize import token_required
 from model.user import User
 from model.github import GitHubUser
+from api.community_api import MEMBER_TYPES
 import os
 
 user_api = Blueprint('user_api', __name__,
@@ -14,6 +15,38 @@ user_api = Blueprint('user_api', __name__,
 # API docs https://flask-restful.readthedocs.io/en/latest/api.html
 api = Api(user_api)
 
+
+def find_login_user(identifier):
+    """Find the account someone is logging in to.
+
+    The exact username is tried first, so existing logins behave the same. If that fails,
+    a case-insensitive username or an email address is accepted, but only when exactly
+    one account matches (phones often capitalise the first letter of a username).
+    """
+    identifier = str(identifier or '').strip()
+    if not identifier:
+        return None
+    user = User.query.filter_by(_uid=identifier).first()
+    if user is not None:
+        return user
+    lowered = identifier.lower()
+    matches = User.query.filter(db.func.lower(User._uid) == lowered).limit(2).all()
+    if len(matches) == 1:
+        return matches[0]
+    if '@' in identifier:
+        matches = User.query.filter(db.func.lower(User._email) == lowered).limit(2).all()
+        if len(matches) == 1:
+            return matches[0]
+    return None
+
+
+def public_user_data(user):
+    """User.read() includes the password hash for backups; never send it to clients."""
+    data = user.read()
+    data.pop('password', None)
+    return data
+
+
 class UserAPI:        
     class _ID(Resource):  # Individual identification API operation
         @token_required()
@@ -21,7 +54,7 @@ class UserAPI:
             ''' Retrieve the current user from the token_required authentication check '''
             current_user = g.current_user
             ''' Return the current user as a json object with role information '''
-            user_data = current_user.read()
+            user_data = public_user_data(current_user)
             # Add role information to response
             user_data['role'] = current_user.role
             user_data['is_admin'] = current_user.is_admin()
@@ -147,14 +180,14 @@ class UserAPI:
                     # Check if user was actually created in database despite create() returning None
                     db_user = User.query.filter_by(_uid=uid).first()
                     if db_user:
-                        #print(f"User exists in DB but create returned None: {db_user.uid}")
-                        return jsonify(db_user.read())  # Return the user anyway
+                        # Never hand back another account's record for a duplicate User ID
+                        return {'message': f'User ID {uid} is already taken'}, 409
                     else:
                         return {'message': f'Processed {name}, either a format error or User ID {uid} is duplicate'}, 400
                 
                 #print(f"Successfully created user: {user.uid}")
                 # return response, the created user details as a JSON object
-                return jsonify(user.read())
+                return jsonify(public_user_data(user))
                 
             except Exception as e:
                 #print(f"Error creating user: {e}")
@@ -198,7 +231,7 @@ class UserAPI:
             # prepare a json list of user dictionaries
             json_ready = []  
             for user in users:
-                user_data = user.read()
+                user_data = public_user_data(user)
                 # Add access control
                 if current_user.role == 'Admin' or current_user.id == user.id:
                     user_data['access'] = ['rw'] # read-write access control 
@@ -262,7 +295,7 @@ class UserAPI:
             user.update(body)
             
             # return response, the updated user details as a JSON object
-            return jsonify(user.read())
+            return jsonify(public_user_data(user))
         
         @token_required("Admin")
         def delete(self):
@@ -285,7 +318,7 @@ class UserAPI:
                 return {'message': f'User {uid} not found'}, 404
            
             # Read and then Delete the User object using custom methods
-            user_json = user.read()
+            user_json = public_user_data(user)
             user.delete()
             
             # 204 is the status code for delete with no json response
@@ -379,9 +412,8 @@ class UserAPI:
                 if not password:
                     return {'message': f'Password is missing'}, 401
                             
-                ''' Find user '''
-    
-                user = User.query.filter_by(_uid=uid).first()
+                ''' Find user (username, any capitalisation, or email) '''
+                user = find_login_user(uid)
                 
                 if user is None or not user.is_password(password):
                     
@@ -693,8 +725,16 @@ class UserAPI:
             sid = "?"
             school = "?"
 
+            # Member type picked on the sign-up form. Admin and Organizer are only
+            # ever given by an Admin, so they cannot be chosen here.
+            role = body.get('role')
+            if role is None or role == "":
+                role = "User"
+            elif role not in MEMBER_TYPES:
+                return {'message': f"role must be one of: {', '.join(MEMBER_TYPES)}"}, 400
+
             # Create User object with auto-generated name
-            user_obj = User(name=name, uid=uid, password=password)
+            user_obj = User(name=name, uid=uid, password=password, role=role)
 
             # Build cleaned body with all fields filled
             cleaned_body = {
@@ -717,12 +757,12 @@ class UserAPI:
                     # Check if user was actually created in database
                     db_user = User.query.filter_by(_uid=uid).first()
                     if db_user:
-                        return jsonify(db_user.read())
-                    else:
-                        return {'message': f'Failed to create guest account for {uid}, username may already exist'}, 400
+                        # Never hand back another account's record for a duplicate username
+                        return {'message': f'The username {uid} is already taken'}, 409
+                    return {'message': f'Failed to create an account for {uid}'}, 400
 
                 # Return the created user details
-                return jsonify(user.read())
+                return jsonify(public_user_data(user))
 
             except Exception as e:
                 return {'message': f'Error creating guest user: {str(e)}'}, 500
