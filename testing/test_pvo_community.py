@@ -30,7 +30,9 @@ from main import app  # noqa: E402  (env must be set before the app is imported)
 from __init__ import db  # noqa: E402
 from model.user import User  # noqa: E402
 from model.profile import ProfileSurvey  # noqa: E402
-from api.community_api import ensure_profile_survey_columns, purge_expired_guests  # noqa: E402
+from api.community_api import (  # noqa: E402
+    ensure_admin_accounts, ensure_profile_survey_columns, parse_admin_accounts, purge_expired_guests,
+)
 from sqlalchemy import inspect, text  # noqa: E402
 
 # 1x1 transparent PNG
@@ -356,6 +358,43 @@ class CommunityApiTests(unittest.TestCase):
         admin = signed_in_client("admin_tester")
         response = admin.put(f"/api/admin/users/{guest['uid']}/role", json={"role": "Admin"})
         self.assertEqual(response.status_code, 400)
+
+    # ---- admin accounts from .env (PVO_ADMINS) -------------------------------------
+
+    def test_admin_accounts_setting_is_parsed_safely(self):
+        self.assertEqual(parse_admin_accounts(" alpha:Pass-one-1 , beta:Pass-two-2 "), [("alpha", "Pass-one-1"), ("beta", "Pass-two-2")])
+        self.assertEqual(parse_admin_accounts("colon:pa:ss"), [("colon", "pa:ss")])  # first ":" splits
+        self.assertEqual(parse_admin_accounts(""), [])
+        self.assertEqual(parse_admin_accounts(None), [])
+        self.assertEqual(parse_admin_accounts("nopassword,:nouid,blank:,,"), [])
+
+    def test_admins_listed_in_env_are_created_and_can_log_in(self):
+        with app.app_context():
+            ready = ensure_admin_accounts("envadmin_one:First-pass-1,envadmin_two:Second:pass-2")
+        self.assertEqual(ready, ["envadmin_one", "envadmin_two"])
+        for uid, password in (("envadmin_one", "First-pass-1"), ("envadmin_two", "Second:pass-2")):
+            client = app.test_client()
+            self.assertEqual(client.post("/api/authenticate", json={"uid": uid, "password": password}).status_code, 200)
+            self.assertEqual(client.get("/api/id").get_json()["role"], "Admin")
+            self.assertEqual(client.get("/api/admin/users").status_code, 200)
+        # running again (every start-up) does not duplicate anything
+        with app.app_context():
+            ensure_admin_accounts("envadmin_one:First-pass-1")
+            self.assertEqual(User.query.filter_by(_uid="envadmin_one").count(), 1)
+
+    def test_existing_account_listed_in_env_is_promoted_and_uses_the_env_password(self):
+        make_user("env_existing")  # a Member with PASSWORD
+        with app.app_context():
+            ensure_admin_accounts("env_existing:New-env-pass-1")
+        self.assertEqual(role_in_db("env_existing"), "Admin")
+        self.assertEqual(self.login_status("env_existing", "New-env-pass-1"), 200)
+        self.assertEqual(self.login_status("env_existing", PASSWORD), 401)
+
+    def test_no_admin_setting_changes_nothing(self):
+        with app.app_context():
+            before = User.query.count()
+            self.assertEqual(ensure_admin_accounts(""), [])
+            self.assertEqual(User.query.count(), before)
 
     # ---- account privacy --------------------------------------------------------
 

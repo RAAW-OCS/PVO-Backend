@@ -169,6 +169,49 @@ def ensure_profile_survey_columns():
                 connection.execute(text(f"ALTER TABLE profile_surveys ADD COLUMN {name} {sql_type}"))
 
 
+def parse_admin_accounts(setting):
+    """Read PVO_ADMINS ("uid:password,uid:password") into [(uid, password)].
+
+    The password is everything after the first ":" so it may contain ":", but not ",".
+    Blank or malformed entries are skipped.
+    """
+    accounts = []
+    for entry in (setting or "").split(","):
+        uid, separator, password = entry.strip().partition(":")
+        uid = uid.strip()
+        if uid and separator and password:
+            accounts.append((uid, password))
+    return accounts
+
+
+def ensure_admin_accounts(setting=None):
+    """Make sure the administrators listed in PVO_ADMINS exist, on every computer and server.
+
+    Accounts live in each backend's own database, which is not in git, so a list in .env
+    (also not in git) is how every copy of the backend gets the same administrators.
+    Missing accounts are created; existing ones are made Admin and given the password from
+    .env, so .env is the source of truth for these accounts. Safe to run on every start-up.
+    Returns the uids it checked.
+    """
+    if setting is None:
+        setting = os.environ.get("PVO_ADMINS", "")
+    ready = []
+    for uid, password in parse_admin_accounts(setting):
+        user = User.query.filter_by(_uid=uid).first()
+        if user is None:
+            user = User(name=uid.title(), uid=uid, password=password, role=ADMIN_ROLE)
+            if user.create() is None:
+                continue
+        else:
+            if user.role != ADMIN_ROLE:
+                user.role = ADMIN_ROLE
+            if not user.is_password(password):
+                user.set_password(password)
+            db.session.commit()
+        ready.append(uid)
+    return ready
+
+
 def admin_user_view(user):
     return {
         "id": user.id,
