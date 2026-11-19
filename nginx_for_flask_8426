@@ -29,6 +29,10 @@ server {
         if ($http_origin = "https://aadis12.github.io") {
             set $cors_origin $http_origin;
         }
+        # PVO frontend on its custom domain (GitHub Pages)
+        if ($http_origin = "https://pvoteam.opencodingsociety.com") {
+            set $cors_origin $http_origin;
+        }
 
         add_header "Access-Control-Allow-Origin" "$cors_origin" always;
         add_header "Access-Control-Allow-Credentials" "true" always;
