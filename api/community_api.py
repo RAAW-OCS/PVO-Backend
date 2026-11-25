@@ -126,6 +126,22 @@ def set_login_cookie(response, user):
     return response
 
 
+def clear_login_cookies(response):
+    """Remove the login cookie from the browser (the opposite of set_login_cookie).
+
+    A browser only removes a cookie when the domain matches the one it was set with, so
+    removing just the form this server sets now leaves people signed in when theirs is the
+    other form: set before IS_PRODUCTION changed, or by another opencodingsociety.com server.
+    Both forms are removed. On localhost the browser ignores the second one.
+    """
+    name = current_app.config["JWT_TOKEN_NAME"]
+    response.delete_cookie(name, path="/", samesite="Lax")
+    response.delete_cookie(
+        name, path="/", domain=".opencodingsociety.com", secure=True, httponly=True, samesite="None",
+    )
+    return response
+
+
 def purge_expired_guests(now=None):
     """Guest accounts are disposable; remove the ones older than GUEST_MAX_AGE."""
     cutoff = ((now or datetime.utcnow()) - GUEST_MAX_AGE).strftime("%Y%m%d")

@@ -1,12 +1,13 @@
 import jwt
 from flask import Blueprint, app, request, jsonify, current_app, Response, g
+from flask_login import logout_user
 from flask_restful import Api, Resource # used for REST API building
 from datetime import datetime
 from __init__ import app, db
 from api.authorize import token_required
 from model.user import User
 from model.github import GitHubUser
-from api.community_api import MEMBER_TYPES
+from api.community_api import MEMBER_TYPES, clear_login_cookies
 import os
 
 user_api = Blueprint('user_api', __name__,
@@ -483,51 +484,13 @@ class UserAPI:
                                 "data": None
                             }, 500
                  
-        @token_required()
         def delete(self):
-            ''' Invalidate the current user's token by setting its expiry to 0 '''
-            current_user = g.current_user
-            try:
-                # Generate a token with practically 0 age
-                token = jwt.encode(
-                    {"_uid": current_user._uid, 
-                     "exp": datetime.utcnow()},
-                    current_app.config["SECRET_KEY"],
-                    algorithm="HS256"
-                )
-                # You might want to log this action or take additional steps here
-                
-                # Prepare a response indicating the token has been invalidated
-                resp = Response("Token invalidated successfully")
-                is_production = os.environ.get('IS_PRODUCTION', 'false').lower() == 'true'
-                if is_production:
-                    resp.set_cookie(
-                        current_app.config["JWT_TOKEN_NAME"],
-                        token,
-                        max_age=0,  # Immediately expire the cookie
-                        secure=True,
-                        httponly=True,
-                        path='/',
-                        samesite='None',
-                        domain='.opencodingsociety.com'
-                
-                    )
-                else:
-                    resp.set_cookie(
-                        current_app.config["JWT_TOKEN_NAME"],
-                        token,
-                        max_age=0,  # Immediately expire the cookie
-                        secure=False,
-                        httponly=False,  # Set to True for more security if JS access not needed
-                        path='/',
-                        samesite='Lax'
-                    )
-                return resp
-            except Exception as e:
-                return {
-                    "message": "Failed to invalidate token",
-                    "error": str(e)
-                }, 500
+            ''' Log out: end every kind of login this server accepts (see api/authorize.py)
+
+            This always succeeds, so someone whose token has expired can still clear it.
+            '''
+            logout_user()  # the session from this server's own /login page
+            return clear_login_cookies(Response("Token invalidated successfully"))
 
     class _GradeData(Resource):
         """

@@ -226,6 +226,33 @@ class CommunityApiTests(unittest.TestCase):
         self.assertEqual(logout.status_code, 200)
         self.assertEqual(client.get("/api/id").status_code, 401)
 
+    # ---- logging out ------------------------------------------------------------
+
+    def test_log_out_also_ends_a_login_from_the_backend_login_page(self):
+        client = app.test_client()
+        client.post("/login", data={"username": "admin_tester", "password": PASSWORD, "next": "/"})
+        self.assertEqual(client.get("/api/id").status_code, 200)
+        self.assertEqual(client.delete("/api/authenticate").status_code, 200)
+        self.assertEqual(client.get("/api/id").status_code, 401)
+
+    def test_log_out_removes_the_cookie_in_both_forms(self):
+        # The host-only form (IS_PRODUCTION=false) and the shared one (IS_PRODUCTION=true).
+        # A browser keeps a cookie unless the domain it was set with is named.
+        for production in ("false", "true"):
+            with mock.patch.dict(os.environ, {"IS_PRODUCTION": production}):
+                removed = signed_in_client("member_tester").delete("/api/authenticate").headers.getlist("Set-Cookie")
+            token = [cookie for cookie in removed if cookie.startswith(app.config["JWT_TOKEN_NAME"] + "=;")]
+            self.assertEqual(len(token), 2, removed)
+            self.assertTrue(all("Max-Age=0" in cookie and "Path=/" in cookie for cookie in token), token)
+            self.assertEqual(sorted("Domain=opencodingsociety.com" in cookie for cookie in token), [False, True])
+
+    def test_log_out_works_without_a_valid_login(self):
+        client = app.test_client()
+        self.assertEqual(client.delete("/api/authenticate").status_code, 200)
+        client.set_cookie(app.config["JWT_TOKEN_NAME"], "not-a-real-token")
+        self.assertEqual(client.delete("/api/authenticate").status_code, 200)
+        self.assertIsNone(client.get_cookie(app.config["JWT_TOKEN_NAME"]))
+
     def test_expired_guests_are_purged_with_their_survey(self):
         old_uid = "guest-" + (datetime.utcnow() - timedelta(days=10)).strftime("%Y%m%d") + "-abc123"
         with app.app_context():
